@@ -1,7 +1,7 @@
-// the script is just for testing
+// This script is just for testing
 var cheerio = require("cheerio-without-node-native");
 
-var PROVIDER_NAME = "4khdhub";
+var PROVIDER_NAME = "4KHD";
 var DOMAINS_URL = "https://raw.githubusercontent.com/Xyr0nX/NGEX/refs/heads/main/manifest.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -15,6 +15,8 @@ var DEFAULT_HEADERS = {
 };
 
 var cachedDomains = null;
+var domainCacheTs = 0;
+var DOMAIN_CACHE_TTL = 60 * 60 * 1000;
 
 function assign(target, source) {
   var out = {};
@@ -94,6 +96,62 @@ function rot13(value) {
   });
 }
 
+function levenshteinDistance(s, t) {
+  if (s === t) return 0;
+  var n = s.length;
+  var m = t.length;
+  if (n === 0) return m;
+  if (m === 0) return n;
+
+  var d = [];
+  var i, j, cost;
+
+  for (i = 0; i <= n; i += 1) {
+    d[i] = [];
+    d[i][0] = i;
+  }
+  for (j = 0; j <= m; j += 1) {
+    d[0][j] = j;
+  }
+
+  for (i = 1; i <= n; i += 1) {
+    for (j = 1; j <= m; j += 1) {
+      cost = s.charAt(i - 1) === t.charAt(j - 1) ? 0 : 1;
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,
+        d[i][j - 1] + 1,
+        d[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return d[n][m];
+}
+
+function parseBytes(val) {
+  if (typeof val === "number") return val;
+  if (!val) return 0;
+  var match = String(val).match(/^([0-9.]+)\s*([a-zA-Z]+)$/);
+  if (!match) return 0;
+  var num = parseFloat(match[1]);
+  var unit = match[2].toLowerCase();
+  var multiplier = 1;
+  if (unit.indexOf("k") === 0) multiplier = 1024;
+  else if (unit.indexOf("m") === 0) multiplier = 1024 * 1024;
+  else if (unit.indexOf("g") === 0) multiplier = 1024 * 1024 * 1024;
+  else if (unit.indexOf("t") === 0) multiplier = 1024 * 1024 * 1024 * 1024;
+  return num * multiplier;
+}
+
+function formatBytes(val) {
+  if (!val) return "0 B";
+  var k = 1024;
+  var sizes = ["B", "KB", "MB", "GB", "TB"];
+  var i = Math.floor(Math.log(val) / Math.log(k));
+  if (i < 0) i = 0;
+  return parseFloat((val / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
 function parseQuality(text) {
   var value = String(text || "").toLowerCase();
   var m = value.match(/\b(\d{3,4}p)\b/);
@@ -141,7 +199,7 @@ function cleanTech(title) {
     "CAM": 1, "TS": 1, "BRRIP": 1, "BDRIP": 1, "H264": 1, "H265": 1, "X264": 1,
     "X265": 1, "HEVC": 1, "AVC": 1, "AAC": 1, "AC3": 1, "DTS": 1, "MP3": 1,
     "FLAC": 1, "DD": 1, "ATMOS": 1, "HDR": 1, "HDR10": 1, "HDR10+": 1,
-    "DV": 1, "DOLBYVISION": 1, "NF": 1, "CR": 1, "SDR": 1
+    "DV": 1, "DOLBYVISION": 1, "NF": 1, "CR": 1, "SDR": 1, "REMUX": 1
   };
 
   var parts = normalized.split(/[ ._]+/);
@@ -154,7 +212,6 @@ function cleanTech(title) {
     part = String(parts[i] || "").toUpperCase();
     if (!part) continue;
     if (part === "DV") part = "DOLBYVISION";
-
     if (allowed[part] || /^DDP\d\.\d$/.test(part)) {
       if (!seen[part]) {
         seen[part] = 1;
@@ -174,6 +231,7 @@ function cleanLabelText(text) {
     .replace(/Download PixelDrain/gi, "")
     .replace(/Download BuzzServer/gi, "")
     .replace(/4kHDHub\.Com/gi, "")
+    .replace(/4kHdHub\.com/gi, "")
     .trim();
 }
 
@@ -214,7 +272,10 @@ function buildStream(label, url, quality, headers, size, tech) {
     title: meta.title,
     url: finalUrl,
     quality: quality || "Auto",
-    headers: headers && Object.keys(headers).length ? headers : undefined
+    headers: headers && Object.keys(headers).length ? headers : undefined,
+    behaviorHints: {
+      bingeGroup: "4khd-" + (quality || "auto").toLowerCase()
+    }
   };
 }
 
@@ -258,13 +319,18 @@ function sortLinksByPriority(links) {
 }
 
 function getDomains() {
-  if (cachedDomains) return Promise.resolve(cachedDomains);
+  var now = Date.now();
+  if (cachedDomains && now - domainCacheTs < DOMAIN_CACHE_TTL) {
+    return Promise.resolve(cachedDomains);
+  }
 
   return fetchJson(DOMAINS_URL).then(function (json) {
     cachedDomains = json || {};
+    domainCacheTs = now;
     return cachedDomains;
   }).catch(function () {
-    cachedDomains = {};
+    cachedDomains = cachedDomains || {};
+    domainCacheTs = now;
     return cachedDomains;
   });
 }
@@ -283,53 +349,92 @@ function getTmdbNames(tmdbId, mediaType) {
     var title = data.name || data.title || "";
     var original = data.original_name || data.original_title || title;
     var alt = "";
+    var year = 0;
+
+    if (mediaType === "movie" && data.release_date) {
+      year = parseInt(String(data.release_date).split("-")[0], 10) || 0;
+    } else if (mediaType !== "movie" && data.first_air_date) {
+      year = parseInt(String(data.first_air_date).split("-")[0], 10) || 0;
+    }
 
     if (original && (original.indexOf(":") !== -1 || / and /i.test(original))) {
       alt = original.split(":")[0].split(/ and /i)[0].trim();
     }
 
-    return { title: title, original: original, alt: alt };
+    return {
+      title: title,
+      original: original,
+      alt: alt,
+      year: year
+    };
   }).catch(function () {
-    return { title: "", original: "", alt: "" };
+    return { title: "", original: "", alt: "", year: 0 };
   });
 }
 
-function searchContent(query) {
+function searchContent(query, mediaType, year) {
   return getMainUrl().then(function (mainUrl) {
     return fetchText(mainUrl + "/?s=" + encodeURIComponent(query)).then(function (html) {
       var $ = cheerio.load(html);
       var results = [];
 
-      $("div.card-grid a, div.card-grid-small a").each(function (_, el) {
+      $("div.card-grid a, div.card-grid-small a, a.movie-card").each(function (_, el) {
         var href = fixUrl($(el).attr("href"), mainUrl);
         var title = $(el).find("h3").first().text().trim() ||
           $(el).attr("title") ||
+          $(el).attr("aria-label") ||
           $(el).find("img").attr("alt") ||
           $(el).text().trim();
+
+        var text = $(el).text().trim();
+        var yearMatch = text.match(/\b(19|20)\d{2}\b/);
+        var itemYear = yearMatch ? parseInt(yearMatch[0], 10) : 0;
 
         if (!href || !title) return;
         if (href.indexOf("/category/") !== -1 || href.indexOf("/tag/") !== -1) return;
 
-        results.push({ title: title, href: href });
+        var isSeriesCard = /series/i.test(text) || /-series-/i.test(href);
+        var wantSeries = mediaType !== "movie";
+
+        if (wantSeries && !isSeriesCard && /-movie-/i.test(href)) return;
+        if (!wantSeries && isSeriesCard) return;
+
+        var cleanedTitle = String(title).replace(/[.*?]/g, "").replace(/\s+details$/i, "").trim();
+        var distance = levenshteinDistance(
+          normalizeTitle(cleanedTitle),
+          normalizeTitle(query)
+        );
+
+        var yearDistance = 0;
+        if (year && itemYear) yearDistance = Math.abs(itemYear - year);
+
+        var exactBoost = normalizeTitle(cleanedTitle) === normalizeTitle(query) ? -100 : 0;
+        var includesBoost = normalizeTitle(cleanedTitle).indexOf(normalizeTitle(query)) !== -1 ? -10 : 0;
+
+        results.push({
+          href: href,
+          title: cleanedTitle,
+          year: itemYear,
+          distance: distance,
+          yearDistance: yearDistance,
+          score: distance + yearDistance + exactBoost + includesBoost
+        });
       });
 
       if (!results.length) return null;
 
-      var q = normalizeTitle(query);
-      var exact = null;
-      var starts = null;
-      var includes = null;
-      var i;
-      var current;
+      results = results.filter(function (item) {
+        if (!year || !item.year) return true;
+        return item.yearDistance <= 1;
+      });
 
-      for (i = 0; i < results.length; i += 1) {
-        current = normalizeTitle(results[i].title);
-        if (!exact && current === q) exact = results[i].href;
-        if (!starts && current.indexOf(q) === 0) starts = results[i].href;
-        if (!includes && current.indexOf(q) !== -1) includes = results[i].href;
-      }
+      if (!results.length) return null;
 
-      return exact || starts || includes || null;
+      results.sort(function (a, b) {
+        return a.score - b.score || a.distance - b.distance || a.yearDistance - b.yearDistance;
+      });
+
+      return results[0].href || null;
     });
   });
 }
@@ -388,9 +493,12 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
     });
   }
 
-  $("div.download-item").each(function (_, item) {
+  $("div.episode-download-item").each(function (_, item) {
     var text = $(item).text();
-    if (!new RegExp("S(?:eason)?\\s*0*" + sNum + "\\b", "i").test(text)) return;
+    if (!new RegExp("Episode-?\\s*0*" + eNum + "\\b", "i").test(text) &&
+        !new RegExp("\\bE\\s*0*" + eNum + "\\b", "i").test(text)) {
+      return;
+    }
 
     $(item).find("a[href]").each(function (__, a) {
       var href = fixUrl($(a).attr("href"), pageUrl);
@@ -398,7 +506,7 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
 
       found.push({
         url: href,
-        label: "S" + sNum + " Pack",
+        label: label,
         rawHtml: $(item).html() || ""
       });
     });
@@ -501,7 +609,7 @@ function resolveHubdrive(url, label, quality) {
     var fileId = (String(url).match(/\/file\/(\d+)/i) || [])[1] || "";
 
     var genericLanding =
-      /HubDrive|G-Drive File Sharing Site/i.test(title) &&
+      /HubDrive | G-Drive File Sharing Site/i.test(title) &&
       html.indexOf("drive.google") === -1 &&
       html.indexOf("googleusercontent") === -1 &&
       (!fileId || html.indexOf(fileId) === -1);
@@ -559,14 +667,21 @@ function resolveHubcloud(url, label, referer, quality) {
       headers: assign(baseHeaders, { Referer: sourceReferer || url })
     }).then(function (html) {
       var $ = cheerio.load(html);
-      var size = $("i#size").first().text().trim();
-      var header = $("div.card-header").first().text().trim();
+      var sizeText = $("i#size").first().text().trim() ||
+        $("#size").first().text().trim() ||
+        $("#file-size").first().text().trim();
+
+      var size = sizeText || "";
+      var sizeBytes = parseBytes(sizeText);
+      if (sizeBytes && !size) size = formatBytes(sizeBytes);
+
+      var header = $("div.card-header").first().text().trim() || $("title").first().text().trim();
       var tech = cleanTech(header);
       var finalQuality = quality !== "Auto" ? quality : parseQuality(header);
       var directStreams = [];
       var asyncTasks = [];
 
-      $("a.btn[href]").each(function (_, el) {
+      $("a.btn[href], a[href]").each(function (_, el) {
         var link = fixUrl($(el).attr("href"), entryUrl);
         var text = $(el).text().trim().toLowerCase();
 
@@ -593,7 +708,7 @@ function resolveHubcloud(url, label, referer, quality) {
           return;
         }
 
-        if (text.indexOf("pixel") !== -1) {
+        if (text.indexOf("pixel") !== -1 || link.indexOf("pixeldrain") !== -1) {
           asyncTasks.push(resolvePixeldrain(link, label, finalQuality, entryUrl));
           return;
         }
@@ -603,9 +718,11 @@ function resolveHubcloud(url, label, referer, quality) {
           return;
         }
 
-        directStreams.push(
-          buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech)
-        );
+        if (/download|fsl|direct|stream/i.test(text) || /^https?:/i.test(link)) {
+          directStreams.push(
+            buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech)
+          );
+        }
       });
 
       if (!asyncTasks.length) return directStreams;
@@ -631,7 +748,9 @@ function resolveHubcloud(url, label, referer, quality) {
     headers: baseHeaders
   }).then(function (html) {
     var $ = cheerio.load(html);
-    var raw = $("#download").attr("href");
+    var raw = $("#download").attr("href") ||
+      $("a[href*='hubcloud.php']").attr("href") ||
+      $("iframe").attr("src");
     var entryUrl = fixUrl(raw, url);
     if (!entryUrl) return [];
     return parseEntry(entryUrl, url);
@@ -645,9 +764,11 @@ function resolveHblinks(url, label) {
     var $ = cheerio.load(html);
     var hrefs = [];
 
-    $("h3 a, h5 a, div.entry-content p a").each(function (_, el) {
+    $("h3 a, h5 a, div.entry-content p a, a[href]").each(function (_, el) {
       var href = fixUrl($(el).attr("href"), url);
-      if (href) hrefs.push(href);
+      if (!href) return;
+      if (!/hubcloud|hubdrive|pixeldrain|10gbps|hubcdn/i.test(href)) return;
+      hrefs.push(href);
     });
 
     hrefs = uniqueBy(hrefs, function (x) { return x; });
@@ -676,6 +797,7 @@ function resolveLink(rawUrl, label, referer, quality) {
 
   function next(url) {
     var lower = String(url || "").toLowerCase();
+
     if (/\.(m3u8|mp4|mkv)(?:#|$)/i.test(url)) {
       return Promise.resolve([
         buildStream(label, url, quality, referer ? { Referer: referer } : {})
@@ -739,18 +861,18 @@ function findContentUrl(tmdbId, mediaType) {
   return getTmdbNames(tmdbId, mediaType).then(function (names) {
     if (!names.title && !names.original) return null;
 
-    return searchContent(names.title).then(function (found) {
+    return searchContent(names.title, mediaType, names.year).then(function (found) {
       if (found) return found;
 
       if (names.original && names.original !== names.title) {
-        return searchContent(names.original).then(function (found2) {
+        return searchContent(names.original, mediaType, names.year).then(function (found2) {
           if (found2) return found2;
-          if (names.alt) return searchContent(names.alt);
+          if (names.alt) return searchContent(names.alt, mediaType, names.year);
           return null;
         });
       }
 
-      if (names.alt) return searchContent(names.alt);
+      if (names.alt) return searchContent(names.alt, mediaType, names.year);
       return null;
     });
   });
