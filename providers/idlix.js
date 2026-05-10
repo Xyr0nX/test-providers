@@ -1,7 +1,8 @@
 "use strict";
 
 // ─── IDLIX PROVIDER FOR NUVIO ──────────────────────────────────────────────
-// Format: Single-file Promise-based (Hermes-safe, no async/await)
+// Versi Perbaikan (berdasarkan analisis IdlixProvider.kt)
+// Fix playback error pada beberapa film
 // ──────────────────────────────────────────────────────────────────────────
 
 var BASE_URL   = "https://z1.idlixku.com";
@@ -99,11 +100,7 @@ function parseM3u8(masterUrl, referer) {
     .then(function(text) {
       if (!text) return null;
 
-      // Cek apakah ini master playlist atau media playlist
-      // Master: ada #EXT-X-STREAM-INF
-      // Media: ada #EXTINF (langsung bisa diputar)
       if (text.indexOf("#EXT-X-STREAM-INF") === -1) {
-        // Ini media playlist langsung — return sebagai Auto
         if (text.indexOf("#EXTINF") !== -1 || text.indexOf("#EXT-X-TARGETDURATION") !== -1) {
           console.log("[M3u8] Media playlist langsung, pakai sebagai Auto.");
           return [{ quality: "Auto", url: masterUrl }];
@@ -137,43 +134,82 @@ function parseM3u8(masterUrl, referer) {
     .catch(function(e) { console.warn("[M3u8] " + e.message); return null; });
 }
 
-// ── Majorplay Extractor ────────────────────────────────────────────────────
+// ── Helper: Ekstrak URL M3U8 dari halaman web ─────────────────────────────
 
-function extractMajorplay(masterUrl, subtitles, title) {
-  console.log("[Majorplay] Parsing: " + masterUrl.substring(0, 70));
-
-  // Tentukan referer dari domain masterUrl
-  var majorReferer = BASE_URL;
-  try {
-    var u = new URL(masterUrl);
-    majorReferer = u.origin;
-  } catch(e) {}
-
-  // Coba follow redirect dulu (beberapa URL adalah redirect)
-  return fetch(masterUrl, {
-    method: "HEAD",
-    headers: { "User-Agent": UA, "Referer": majorReferer },
-    redirect: "follow"
-  })
-  .then(function(r) {
-    var finalUrl = r.url || masterUrl;
-    console.log("[Majorplay] Final URL: " + finalUrl.substring(0, 80));
-    return parseM3u8(finalUrl, majorReferer);
-  })
-  .catch(function() { return parseM3u8(masterUrl, majorReferer); })
-  .then(function(qualities) {
-    if (qualities && qualities.length) {
-      console.log("[Majorplay] Kualitas: " + qualities.map(function(q) { return q.quality; }).join(", "));
-      return qualities.map(function(q) {
-        return makeStream("Majorplay", q.quality, q.url, subtitles, title, majorReferer);
-      });
+function extractM3u8FromPage(html, pageUrl) {
+  var patterns = [
+    /(?:source|file|src)\s*[:=]\s*["']([^"']+\.m3u8[^"']*)/i,
+    /["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/,
+    /(?:url|videoSrc)\s*=\s*["']([^"']+\.m3u8[^"']*)/i
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    var match = html.match(patterns[i]);
+    if (match && match[1]) {
+      var found = match[1];
+      if (found.indexOf("http") !== 0) found = resolveUrl(pageUrl, found);
+      return found;
     }
-    console.log("[Majorplay] Fallback Auto.");
-    return [ makeStream("Majorplay", "Auto", masterUrl, subtitles, title, majorReferer) ];
-  });
+  }
+  // Coba cari iframe
+  var iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  if (iframeMatch) return resolveUrl(pageUrl, iframeMatch[1]);
+  return null;
 }
 
-// ── Jeniusplay Extractor ───────────────────────────────────────────────────
+// ── Majorplay Extractor (diperbaiki) ───────────────────────────────────────
+
+function extractMajorplay(urlOrM3u8, subtitles, title) {
+  console.log("[Majorplay] Input: " + urlOrM3u8.substring(0, 70));
+
+  // Jika sudah m3u8, langsung parse
+  if (urlOrM3u8.indexOf(".m3u8") > -1 || urlOrM3u8.indexOf("m3u8") > -1) {
+    console.log("[Majorplay] URL sudah m3u8.");
+    return parseM3u8(urlOrM3u8, BASE_URL)
+      .then(function(qualities) {
+        if (qualities && qualities.length) {
+          return qualities.map(function(q) {
+            return makeStream("Majorplay", q.quality, q.url, subtitles, title, BASE_URL);
+          });
+        }
+        return [ makeStream("Majorplay", "Auto", urlOrM3u8, subtitles, title, BASE_URL) ];
+      });
+  }
+
+  // Jika bukan m3u8, mungkin halaman web, coba ekstrak
+  var referer = BASE_URL;
+  try { var u = new URL(urlOrM3u8); referer = u.origin; } catch(e) {}
+
+  return fetchText(urlOrM3u8, BASE_URL)
+    .then(function(html) {
+      if (!html) {
+        console.warn("[Majorplay] Halaman kosong, fallback Auto.");
+        return [ makeStream("Majorplay", "Auto", urlOrM3u8, subtitles, title, BASE_URL) ];
+      }
+
+      var m3u8Url = extractM3u8FromPage(html, urlOrM3u8);
+      if (!m3u8Url) {
+        console.warn("[Majorplay] M3U8 tidak ditemukan, fallback Auto.");
+        return [ makeStream("Majorplay", "Auto", urlOrM3u8, subtitles, title, BASE_URL) ];
+      }
+
+      console.log("[Majorplay] Ditemukan M3U8: " + m3u8Url.substring(0, 70));
+      return parseM3u8(m3u8Url, referer)
+        .then(function(qualities) {
+          if (qualities && qualities.length) {
+            return qualities.map(function(q) {
+              return makeStream("Majorplay", q.quality, q.url, subtitles, title, referer);
+            });
+          }
+          return [ makeStream("Majorplay", "Auto", m3u8Url, subtitles, title, referer) ];
+        });
+    })
+    .catch(function(e) {
+      console.error("[Majorplay] Error: " + e.message);
+      return [ makeStream("Majorplay", "Auto", urlOrM3u8, subtitles, title, BASE_URL) ];
+    });
+}
+
+// ── Jeniusplay Extractor (tetap) ───────────────────────────────────────────
 
 function extractJeniusplay(embedUrl, subtitles, title) {
   console.log("[Jeniusplay] Extracting: " + embedUrl.substring(0, 70));
@@ -211,18 +247,15 @@ function extractJeniusplay(embedUrl, subtitles, title) {
         return [];
       }
 
-      // Beberapa videoSource sudah .m3u8, beberapa masih .txt
       var rawSource = json.videoSource;
       var masterUrl = rawSource.indexOf(".m3u8") >= 0
         ? rawSource
         : rawSource.replace(/\.txt$/, ".m3u8");
-      // Handle jika URL adalah relative
       if (masterUrl.indexOf("http") !== 0) {
         masterUrl = JENIUS_URL + "/" + masterUrl.replace(/^\//, "");
       }
       console.log("[Jeniusplay] Master URL: " + masterUrl.substring(0, 70));
 
-      // Parse subtitle dari packed JS
       var jeniusSubs = [];
       var packed = pageHtml.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\)\)/);
       if (packed) {
@@ -262,9 +295,7 @@ function extractJeniusplay(embedUrl, subtitles, title) {
     });
 }
 
-// ── MAIN getStreams ────────────────────────────────────────────────────────
-// PERBAIKAN: Sekarang melakukan POST redeem token sesuai alur asli Idlix
-// dan memproses response redeem dengan benar sebelum ekstraksi stream.
+// ── MAIN getStreams (diperbaiki pada pemrosesan redeem) ──────────────────
 
 function getStreams(tmdbId, mediaType, season, episode) {
   var title = "";
@@ -333,59 +364,84 @@ function getStreams(tmdbId, mediaType, season, episode) {
     return fetchJson(BASE_URL + "/api/watch/play-info/" + content.type + "/" + content.id);
   })
   .then(function(playInfo) {
-    // **PERBAIKAN UTAMA: Validasi dan redeem token**
     if (!playInfo || !playInfo.claim || !playInfo.redeemUrl) {
       return Promise.reject(new Error("play-info tidak valid: " + JSON.stringify(playInfo)));
     }
-
     var claim      = playInfo.claim;
     var redeemUrl  = playInfo.redeemUrl;
-    console.log("[Idlix] Redeem URL: " + redeemUrl);
+    var origin     = "";
+    try { origin = new URL(redeemUrl).origin; } catch(e) { origin = BASE_URL; }
+    console.log("[Idlix] redeemUrl: " + redeemUrl);
 
-    // STEP 5: Redeem claim dengan POST
+    // STEP 5: Redeem
     return fetchJson(redeemUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Referer":       BASE_URL,
-        "Origin":        BASE_URL,  // atau origin dari redeemUrl jika diperlukan
+        "Origin":        origin,
         "User-Agent":    UA,
         "Accept":        "application/json, */*",
       },
       body: JSON.stringify({ claim: claim })
     }).then(function(redeem) {
-      if (!redeem) return Promise.reject(new Error("Redeem gagal, response kosong"));
-      console.log("[Idlix] Redeem berhasil: " + JSON.stringify(redeem).substring(0, 200));
+      if (!redeem) return Promise.reject(new Error("Redeem gagal"));
+      console.log("[Idlix] Redeem OK: " + JSON.stringify(redeem).substring(0, 200));
 
       var subtitles = (redeem.subtitles || []).map(function(s) {
         return { lang: s.lang || "id", label: s.label || "Indonesian", url: s.path || s.url || s.src };
       });
 
-      // STEP 6: Tentukan bagaimana mengolah response redeem
-      // Ada dua kemungkinan: redeem.url langsung ada, atau redeem.code berisi embed URL
+      // ── PERBAIKAN UTAMA: Pemrosesan URL multi-sumber ─────────────────
+      var streamsPromise = Promise.resolve([]);
 
+      // 1. Cek redeem.url (biasanya Majorplay langsung atau halaman)
       if (redeem.url) {
-        console.log("[Idlix] URL stream langsung ditemukan: " + redeem.url);
-        // Langsung gunakan Majorplay extractor
-        return extractMajorplay(redeem.url, subtitles, title);
-      } 
-      else if (redeem.code) {
-        console.log("[Idlix] Dapat kode embed: " + redeem.code);
-        // Cek apakah kode mengarah ke Jeniusplay atau Majorplay
-        if (redeem.code.indexOf("jeniusplay") >= 0) {
-          return extractJeniusplay(redeem.code, subtitles, title);
+        var streamUrl = redeem.url;
+        console.log("[Idlix] redeem.url ditemukan: " + streamUrl.substring(0, 60));
+        // Jika mp4 langsung, buat stream langsung
+        if (streamUrl.indexOf(".mp4") >= 0) {
+          var q = streamUrl.indexOf("1080") >= 0 ? "1080p"
+                : streamUrl.indexOf("720")  >= 0 ? "720p"
+                : streamUrl.indexOf("480")  >= 0 ? "480p" : "Auto";
+          streamsPromise = Promise.resolve([ makeStream("Direct", q, streamUrl, subtitles, title, BASE_URL) ]);
         } else {
-          // Asumsikan URL Majorplay mentah (atau bisa juga di-parse lebih lanjut)
-          return extractMajorplay(redeem.code, subtitles, title);
+          // Jika bukan mp4, anggap bisa m3u8/halaman → Majorplay extractor
+          streamsPromise = extractMajorplay(streamUrl, subtitles, title);
         }
-      } 
-      else {
-        // Fallback: coba periksa properti lain yang mungkin
-        if (redeem.embedUrl && redeem.embedUrl.indexOf("jeniusplay") >= 0) {
-          return extractJeniusplay(redeem.embedUrl, subtitles, title);
-        }
-        return Promise.reject(new Error("Tidak ada url atau code ditemukan di response redeem"));
       }
+
+      // 2. Cek redeem.code (bisa berisi URL ke player eksternal atau iframe)
+      var code = redeem.code || redeem.embedUrl;
+      if (code) {
+        console.log("[Idlix] redeem.code/embedUrl ditemukan: " + code.substring(0, 60));
+        // Jika mengandung jeniusplay, proses khusus
+        if (code.indexOf("jeniusplay") >= 0) {
+          streamsPromise = streamsPromise.then(function(existing) {
+            return extractJeniusplay(code, subtitles, title).then(function(jeniusStreams) {
+              return existing.concat(jeniusStreams);
+            });
+          });
+        } else {
+          // Mungkin URL Majorplay tersembunyi di code
+          streamsPromise = streamsPromise.then(function(existing) {
+            return extractMajorplay(code, subtitles, title).then(function(majorStreams) {
+              return existing.concat(majorStreams);
+            });
+          });
+        }
+      }
+
+      // 3. Fallback ke redeem.videoUrl jika ada dan berbeda
+      if (redeem.videoUrl && redeem.videoUrl !== redeem.url) {
+        streamsPromise = streamsPromise.then(function(existing) {
+          return extractMajorplay(redeem.videoUrl, subtitles, title).then(function(fallbackStreams) {
+            return existing.concat(fallbackStreams);
+          });
+        });
+      }
+
+      return streamsPromise;
     });
   })
   .then(function(streams) {
