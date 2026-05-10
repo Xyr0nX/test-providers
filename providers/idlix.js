@@ -151,30 +151,19 @@ function resolveMajorplayUrl(rawUrl, referer) {
 // ── Majorplay Extractor ────────────────────────────────────────────────────
 
 function extractMajorplay(rawUrl, subtitles, title) {
-  console.log("[Majorplay] Processing: " + rawUrl.substring(0, 70));
+  console.log("[Majorplay] URL: " + rawUrl.substring(0, 80));
 
-  // Tentukan referer dari domain URL
+  // Tentukan referer dari domain stream URL
   var majorReferer = BASE_URL;
   try { majorReferer = new URL(rawUrl.split("?")[0]).origin; } catch(e) {}
 
-  // Step 1: Resolve config JSON → actual m3u8 URL
-  return resolveMajorplayUrl(rawUrl, majorReferer)
-    .then(function(masterUrl) {
-      console.log("[Majorplay] Final URL: " + masterUrl.substring(0, 70));
-
-      // Step 2: Parse m3u8
-      return parseM3u8(masterUrl, majorReferer)
-        .then(function(qualities) {
-          if (qualities && qualities.length) {
-            console.log("[Majorplay] Kualitas: " + qualities.map(function(q) { return q.quality; }).join(", "));
-            return qualities.map(function(q) {
-              return makeStream("Majorplay", q.quality, q.url, subtitles, title, majorReferer);
-            });
-          }
-          console.log("[Majorplay] Fallback Auto.");
-          return [ makeStream("Majorplay", "Auto", masterUrl, subtitles, title, majorReferer) ];
-        });
-    });
+  // JANGAN fetch/parse m3u8 di sini — token JWT akan expired
+  // Kirim URL langsung ke Nuvio, biarkan player handle HLS
+  // Nuvio HLS player mendukung master playlist dan config-XXXXX.json
+  console.log("[Majorplay] Kirim langsung ke player, referer: " + majorReferer);
+  return Promise.resolve([
+    makeStream("Majorplay", "Auto", rawUrl, subtitles, title, majorReferer)
+  ]);
 }
 
 // ── Jeniusplay Extractor ───────────────────────────────────────────────────
@@ -241,16 +230,9 @@ function extractJeniusplay(embedUrl, subtitles, title) {
 
       var allSubs = subtitles.concat(jeniusSubs);
 
-      return parseM3u8(masterUrl, JENIUS_URL)
-        .then(function(qualities) {
-          if (qualities && qualities.length) {
-            console.log("[Jeniusplay] Kualitas: " + qualities.map(function(q) { return q.quality; }).join(", "));
-            return qualities.map(function(q) {
-              return makeStream("Jeniusplay", q.quality, q.url, allSubs, title, JENIUS_URL);
-            });
-          }
-          return [ makeStream("Jeniusplay", "Auto", masterUrl, allSubs, title, JENIUS_URL) ];
-        });
+      // Kirim langsung ke player tanpa fetch m3u8
+      console.log("[Jeniusplay] Kirim langsung ke player");
+      return [ makeStream("Jeniusplay", "Auto", masterUrl, allSubs, title, JENIUS_URL) ];
     })
     .catch(function(e) {
       console.error("[Jeniusplay] Error: " + e.message);
