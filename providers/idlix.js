@@ -2,7 +2,6 @@
 
 // ─── IDLIX PROVIDER FOR NUVIO ──────────────────────────────────────────────
 // Format: Single-file Promise-based (Hermes-safe, no async/await)
-// Providers: Majorplay + Jeniusplay
 // ──────────────────────────────────────────────────────────────────────────
 
 var BASE_URL   = "https://z1.idlixku.com";
