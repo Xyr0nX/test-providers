@@ -1,13 +1,28 @@
-// 4KHD provider/resolver
-// FINAL PATCH (FIXED) by Xyr0nX with full URL logging & headers fix
-// ENJOY!!!
+/*
+ * 4Khdhub Provider/Resolver – Nuvio Provider
+ * ========================================
+ * Author: Xyr0nX
+ * Final Patch (multi-stream, FSL domains, smart dedup)
+ * Fixes & Patches applied:
+ * 1. Syntax fixes: declared FALLBACK_DOMAINS, removed orphan return & empty if blocks.
+ * 2. New FSL domains support: hub.maverick.lat, cdn.fukggl.buzz, hub.odyssey.surf, hub.yummy.monster.
+ * 3. Server priority: FSL (93-95) > workers.dev (25) > r2.dev (22) > GoogleDrive (10).
+ * 4. Stream dedup improvement: uses first 60 chars of URL so different servers are kept.
+ * 5. Removed year filter in searchContent (query already includes year).
+ * 6. Fixed resolve10Gbps: follow redirect (302) before checking for terminal URL.
+ * 7. Auto-headers for workers.dev: Referer https://gamerxyt.com/.
+ * 8. Full URL logging (no slice) for transparent debugging.
+ * 9. Max 2 candidates per file with provider categories (gdrive, workers, fsl, r2).
+ *
+ *  ENJOY!!!
+ */
 var cheerio = require("cheerio-without-node-native");
 
 var PROVIDER_NAME = "4khdhub";
 var DOMAINS_URL = "https://raw.githubusercontent.com/Xyr0nX/NGEX/refs/heads/main/manifest.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var DEBUG = true;
+var DEBUG = false;
 
 var FALLBACK_DOMAINS = [DEFAULT_MAIN_URL];
 
