@@ -1,5 +1,5 @@
 /*
- * 4Khdhub Provider/Resolver – Nuvio Provider
+ * 4Khdhub Provider for Nuvio
  * ========================================
  * Author: Xyr0nX
  * Final Patch (multi-stream, FSL domains, smart dedup)
