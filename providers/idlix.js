@@ -1,5 +1,5 @@
 "use strict";
-
+// Don’t copy this script, because it’s still in the testing phase.
 // ─── IDLIX PROVIDER FOR NUVIO ──────────────────────────────────────────────
 // Format: Single-file Promise-based (Hermes-safe, no async/await)
 // Providers: Majorplay + Jeniusplay
