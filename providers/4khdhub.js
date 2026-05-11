@@ -22,9 +22,13 @@ var PROVIDER_NAME = "4khdhub";
 var DOMAINS_URL = "https://raw.githubusercontent.com/Xyr0nX/NGEX/refs/heads/main/manifest.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var DEBUG = false;
+var DEBUG = true;
 
 var FALLBACK_DOMAINS = [DEFAULT_MAIN_URL];
+// Manual fallback untuk film/serial yang tidak muncul di pencarian
+var KNOWN_URLS = {
+    "The Drama 2026": "https://4khdhub.link/the-drama-movie-6729/"
+};
 
 var DEFAULT_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -345,6 +349,7 @@ function isPlayableMediaUrl(url) {
   if (u.indexOf("hub.odyssey.surf/") !== -1) return true;
   if (u.indexOf("hub.maverick.lat/") !== -1) return true;
   if (u.indexOf("cdn.fukggl.buzz/") !== -1) return true;
+  if (u.indexOf("hub.diskcdn.buzz/") !== -1) return true;
   if (/\/drive\/admin(?:[/?#]|$)/.test(u)) return false;
   if (/^https?:\/\/(?:www\.)?google\.com\/search\?/i.test(u)) return false;
   if (/^https?:\/\/t\.me\//i.test(u)) return false;
@@ -377,6 +382,7 @@ function hostConfidence(url) {
   if (u.indexOf("hub.odyssey.surf") !== -1) return 95;
   if (u.indexOf("hub.maverick.lat") !== -1) return 94;
   if (u.indexOf("cdn.fukggl.buzz") !== -1) return 93;
+  if (u.indexOf("hub.diskcdn.buzz") !== -1) return 93;
   if (u.indexOf("hubcdn") !== -1) return 80;
   if (u.indexOf("hblinks") !== -1) return 60;
   if (u.indexOf("hubcloud") !== -1) return 50;
@@ -879,6 +885,7 @@ function isTrustedDirectCandidate(link) {
   if (u.indexOf("hub.odyssey.surf/") !== -1) return true;
   if (u.indexOf("hub.maverick.lat/") !== -1) return true;
   if (u.indexOf("cdn.fukggl.buzz/") !== -1) return true;
+  if (u.indexOf("hub.diskcdn.buzz/") !== -1) return true;
   if (/\.(mkv|mp4|m3u8)(\?|#|$)/.test(u)) return true;
   return false;
 }
@@ -1180,6 +1187,14 @@ function extractFromPage(contentUrl, mediaType, season, episode) {
 function findContentUrl(tmdbId, mediaType) {
   return getTmdbNames(tmdbId, mediaType).then(function(names) {
     if (!names.title && !names.original) return null;
+
+    // Periksa fallback manual
+    var key = names.title + " " + names.year;
+    if (KNOWN_URLS[key]) {
+      dbg("[findContentUrl] Found in KNOWN_URLS:", KNOWN_URLS[key]);
+      return KNOWN_URLS[key];
+    }
+
     return searchContent(names.title, mediaType, names.year).then(function(found) {
       if (found) return found;
       if (names.original && names.original !== names.title) {
