@@ -1,4 +1,4 @@
-// 4KHD provider/resolver:
+// 4khdhub provider/resolver:
 // mencari halaman konten dari TMDB ID, mengekstrak link movie/episode,
 // lalu me-resolve sumber seperti HubCloud/HubDrive menjadi stream final
 // dengan metadata yang dibersihkan, diprioritaskan, dan divalidasi.
