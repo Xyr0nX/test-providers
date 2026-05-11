@@ -1,4 +1,4 @@
-// 4khdhub provider/resolver with debugging
+// 4khdhub provider/resolver with debugging by Xyr0nX
 // 1. parseEntry() — dedupe internal: tiap file hanya 1 stream terbaik (fix duplikat definitif)
 // 2. resolveLink()  — log semua URL masuk termasuk yang tidak dikenali (fix Inception debug)
 // 3. collectMovieLinks — log semua link yang ditemukan di semua layer
