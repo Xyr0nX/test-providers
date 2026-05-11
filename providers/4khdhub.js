@@ -1,4 +1,4 @@
-// 4KHD provider/resolver:
+// 4khdhub provider/resolver Complete:
 // mencari halaman konten dari TMDB ID, mengekstrak link movie/episode,
 // lalu me-resolve sumber seperti HubCloud/HubDrive menjadi stream final
 // dengan metadata yang dibersihkan, diprioritaskan, dan divalidasi.
@@ -335,9 +335,7 @@ function isPlayableMediaUrl(url) {
   if (u.indexOf(".r2.dev/") !== -1) return true;
   if (u.indexOf(".workers.dev/") !== -1) return true;
   if (u.indexOf("hub.lotuscdn.club/") !== -1) return true;
-  if (u.indexOf("odyssey.surf/") !== -1) return true;
-  if (u.indexOf("pixeldrain.com/api/file/") !== -1) return true;
-  if (/hubcloud\.[^\/]+\/tg\/go\?/i.test(u) && /#\.mkv/i.test(u)) return true;
+  if (u.indexOf("hub.yummy.monster/") !== -1) return true;
 
   if (/\/drive\/admin(?:[/?#]|$)/.test(u)) return false;
   if (/^https?:\/\/(?:www\.)?google\.com\/search\?/i.test(u)) return false;
@@ -345,6 +343,7 @@ function isPlayableMediaUrl(url) {
   if (/^https?:\/\/one\.one\.one\.one\/?$/i.test(u)) return false;
   if (/^https?:\/\/(?:www\.)?hdhub4u\./i.test(u)) return false;
   if (/tinyurl\.com\/unblock-ban-site/i.test(u)) return false;
+  if (/hubcloud\.[^\/]+\/tg\/go\?/i.test(u)) return false;
   if (/hubcloud\.[^\/]+\/drive\/[^\/?#]+$/i.test(u)) return false;
 
   return false;
@@ -366,22 +365,15 @@ function validateResolvedStreams(streams) {
 
 function hostConfidence(url) {
   var u = String(url || "").toLowerCase();
-  if (!u) return 0;
-  if (u.indexOf("odyssey.surf/") !== -1) return 260;
-  if (u.indexOf("hub.lotuscdn.club/") !== -1) return 250;
-  if (u.indexOf("video-downloads.googleusercontent.com/") !== -1) return 245;
-  if (u.indexOf(".r2.dev/") !== -1) return 240;
-  if (u.indexOf("pixeldrain.com/api/file/") !== -1) return 200;
-  if (/hubcloud\.[^\/]+\/tg\/go\?/i.test(u) && /#\.mkv/i.test(u)) return 185;
-  if (/\.(mkv|mp4|m3u8)(\?|#|$)/.test(u) && u.indexOf(".workers.dev/") === -1) return 175;
-  if (u.indexOf("hubcdn") !== -1) return 120;
-  if (u.indexOf("pixeldrain") !== -1) return 110;
-  if (u.indexOf("10gbps") !== -1) return 90;
-  if (u.indexOf("rohitkiskk.workers.dev") !== -1) return 70;
-  if (u.indexOf(".workers.dev/") !== -1) return 66;
-  if (u.indexOf("hubcloud") !== -1) return 50;
-  if (u.indexOf("hblinks") !== -1) return 40;
-  if (u.indexOf("hubdrive") !== -1) return 20;
+  if (u.indexOf("hubcloud") !== -1) return 100;
+  if (u.indexOf("pixeldrain") !== -1) return 90;
+  if (u.indexOf("hubcdn") !== -1) return 80;
+  if (u.indexOf("10gbps") !== -1 || u.indexOf("rohitkiskk.workers.dev") !== -1) return 75;
+  if (u.indexOf("lotuscdn") !== -1) return 70;
+  if (u.indexOf(".r2.dev") !== -1) return 68;
+  if (u.indexOf(".workers.dev") !== -1) return 66;
+  if (u.indexOf("hblinks") !== -1) return 60;
+  if (u.indexOf("hubdrive") !== -1) return 30;
   return 10;
 }
 
@@ -742,9 +734,7 @@ function isTrustedDirectCandidate(link) {
   if (u.indexOf(".r2.dev/") !== -1) return true;
   if (u.indexOf(".workers.dev/") !== -1) return true;
   if (u.indexOf("hub.lotuscdn.club/") !== -1) return true;
-  if (u.indexOf("odyssey.surf/") !== -1) return true;
-  if (u.indexOf("pixeldrain.com/api/file/") !== -1) return true;
-  if (/hubcloud\.[^\/]+\/tg\/go\?/i.test(u) && /#\.mkv/i.test(u)) return true;
+  if (u.indexOf("hub.yummy.monster/") !== -1) return true;
   if (/\.(mkv|mp4|m3u8)(\?|#|$)/.test(u)) return true;
 
   return false;
@@ -910,18 +900,6 @@ function resolveLink(rawUrl, label, referer, quality, langHint) {
     }
     if (lower.indexOf("hubdrive") !== -1) {
       return resolveHubdrive(url, label, quality).then(finalize);
-    }
-
-    if (lower.indexOf("odyssey.surf") !== -1 ||
-        lower.indexOf("hub.lotuscdn.club") !== -1 ||
-        lower.indexOf("video-downloads.googleusercontent.com") !== -1 ||
-        lower.indexOf(".r2.dev/") !== -1 ||
-        lower.indexOf(".workers.dev/") !== -1 ||
-        lower.indexOf("pixeldrain.com/api/file/") !== -1 ||
-        (/hubcloud\.[^\/]+\/tg\/go\?/i.test(lower) && /#\.mkv/i.test(lower))) {
-      return finalize([
-        buildStream(label, url, quality, referer ? { Referer: referer } : {}, "", "", langHint)
-      ]);
     }
 
     return finalize([
