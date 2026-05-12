@@ -1,5 +1,5 @@
 /*
- * 4Khdhub Provider for Nuvio
+ * 4Khdhub Provider/Resolver – Nuvio Provider
  * ========================================
  * Author: Xyr0nX
  * Final Patch (multi-stream, FSL domains, smart dedup)
@@ -22,7 +22,7 @@ var PROVIDER_NAME = "4khdhub";
 var DOMAINS_URL = "https://raw.githubusercontent.com/Xyr0nX/NGEX/refs/heads/main/manifest.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var DEBUG = false;
+var DEBUG = true;
 
 var FALLBACK_DOMAINS = [DEFAULT_MAIN_URL];
 // Manual fallback untuk film/serial yang tidak muncul di pencarian
@@ -283,7 +283,17 @@ function buildMeta(label, quality, size, tech, langHint) {
 
 function buildStream(label, url, quality, headers, size, tech, langHint) {
   var finalUrl = String(url || "").trim();
-  dbg("[buildStream] FINAL URL:", finalUrl);
+
+  // === PROXY Google Drive (hardcoded) ===
+  var GDRIVE_PROXY = "https://gdrive-proxy.python-hacking19.workers.dev";
+
+  if (finalUrl.indexOf('video-downloads.googleusercontent.com') !== -1 ||
+      finalUrl.indexOf('drive.google.com') !== -1) {
+    finalUrl = GDRIVE_PROXY + '/?url=' + encodeURIComponent(finalUrl);
+    dbg("[buildStream] Proxied URL:", finalUrl);
+  } else {
+    dbg("[buildStream] FINAL URL:", finalUrl);
+  }
 
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
   var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
@@ -293,11 +303,11 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
   var meta = buildMeta(cleanedLabel, finalQuality, finalSize, finalTech, langHint);
 
   var streamHeaders = headers || {};
-  if (finalUrl.indexOf(".workers.dev") !== -1) {
-      streamHeaders = {
-          "Referer": "https://gamerxyt.com/",
-          "User-Agent": DEFAULT_HEADERS["User-Agent"]
-      };
+  if (finalUrl.indexOf(".workers.dev") !== -1 && finalUrl.indexOf(GDRIVE_PROXY) === -1) {
+    streamHeaders = {
+      "Referer": "https://gamerxyt.com/",
+      "User-Agent": DEFAULT_HEADERS["User-Agent"]
+    };
   }
 
   return {
