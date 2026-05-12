@@ -1,30 +1,29 @@
-/*
- * 4Khdhub Provider/Resolver – Nuvio Provider
- * ========================================
- * Author: Xyr0nX
- * Final Patch (multi-stream, FSL domains, smart dedup)
- * Fixes & Patches applied:
- * 1. Syntax fixes: declared FALLBACK_DOMAINS, removed orphan return & empty if blocks.
- * 2. New FSL domains support: hub.maverick.lat, cdn.fukggl.buzz, hub.odyssey.surf, hub.yummy.monster.
- * 3. Server priority: FSL (93-95) > workers.dev (25) > r2.dev (22) > GoogleDrive (10).
- * 4. Stream dedup improvement: uses first 60 chars of URL so different servers are kept.
- * 5. Removed year filter in searchContent (query already includes year).
- * 6. Fixed resolve10Gbps: follow redirect (302) before checking for terminal URL.
- * 7. Auto-headers for workers.dev: Referer https://gamerxyt.com/.
- * 8. Full URL logging (no slice) for transparent debugging.
- * 9. Max 2 candidates per file with provider categories (gdrive, workers, fsl, r2).
- *
- *  ENJOY!!!
- */
+// 4khdhub Provider for Nuvio
+// ========================================
+// Author: Xyr0nX
+// Final Patch (multi-stream, FSL domains, smart dedup)
+// Fixes & Patches applied:
+// 1. Syntax fixes: declared FALLBACK_DOMAINS, removed orphan return & empty if blocks.
+// 2. New FSL domains support: hub.maverick.lat, cdn.fukggl.buzz, hub.odyssey.surf, hub.yummy.monster, hub.diskcdn.buzz.
+// 3. Server priority: FSL (93-95) > workers.dev (25) > r2.dev (22) > GoogleDrive (10).
+// 4. Stream dedup improvement: uses first 60 chars of URL so different servers are kept.
+// 5. Removed year filter in searchContent (query already includes year).
+// 6. Fixed resolve10Gbps: follow redirect (302) before checking for terminal URL.
+// 7. Auto-headers for workers.dev: Referer https://gamerxyt.com/.
+// 8. Full URL logging (no slice) for transparent debugging.
+// 9. Max 2 candidates per file with provider categories (gdrive, workers, fsl, r2).
+// 10. Fallback manual URL (KNOWN_URLS) for movies not indexed by internal search.
+
 var cheerio = require("cheerio-without-node-native");
 
 var PROVIDER_NAME = "4khdhub";
 var DOMAINS_URL = "https://raw.githubusercontent.com/Xyr0nX/NGEX/refs/heads/main/manifest.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var DEBUG = true;
+var DEBUG = false;
 
 var FALLBACK_DOMAINS = [DEFAULT_MAIN_URL];
+
 // Manual fallback untuk film/serial yang tidak muncul di pencarian
 var KNOWN_URLS = {
     "The Drama 2026": "https://4khdhub.link/the-drama-movie-6729/"
@@ -283,17 +282,7 @@ function buildMeta(label, quality, size, tech, langHint) {
 
 function buildStream(label, url, quality, headers, size, tech, langHint) {
   var finalUrl = String(url || "").trim();
-
-  // === PROXY Google Drive (hardcoded) ===
-  var GDRIVE_PROXY = "https://gdrive-proxy.python-hacking19.workers.dev";
-
-  if (finalUrl.indexOf('video-downloads.googleusercontent.com') !== -1 ||
-      finalUrl.indexOf('drive.google.com') !== -1) {
-    finalUrl = GDRIVE_PROXY + '/?url=' + encodeURIComponent(finalUrl);
-    dbg("[buildStream] Proxied URL:", finalUrl);
-  } else {
-    dbg("[buildStream] FINAL URL:", finalUrl);
-  }
+  dbg("[buildStream] FINAL URL:", finalUrl);
 
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
   var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
@@ -303,11 +292,11 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
   var meta = buildMeta(cleanedLabel, finalQuality, finalSize, finalTech, langHint);
 
   var streamHeaders = headers || {};
-  if (finalUrl.indexOf(".workers.dev") !== -1 && finalUrl.indexOf(GDRIVE_PROXY) === -1) {
-    streamHeaders = {
-      "Referer": "https://gamerxyt.com/",
-      "User-Agent": DEFAULT_HEADERS["User-Agent"]
-    };
+  if (finalUrl.indexOf(".workers.dev") !== -1) {
+      streamHeaders = {
+          "Referer": "https://gamerxyt.com/",
+          "User-Agent": DEFAULT_HEADERS["User-Agent"]
+      };
   }
 
   return {
@@ -577,7 +566,6 @@ function searchContent(query, mediaType, year) {
       dbg("[searchContent] Found", results.length, "candidates for:", query, "(type:", mediaType + ")");
       if (!results.length) return null;
 
-      // Filter tahun dihapus — query sudah menyertakan tahun
       results.sort(function(a, b) {
         return a.score - b.score || a.distance - b.distance || a.yearDistance - b.yearDistance;
       });
@@ -1023,7 +1011,7 @@ function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
             seen[providerKey] = true;
             selected.push(allCandidates[ci]);
           }
-          if (selected.length >= 2) break;
+          if (selected.length >= 1) break;
         }
         dbg("[parseEntry] candidates:", allCandidates.length, "| Best:", selected[0].url);
         return selected;
