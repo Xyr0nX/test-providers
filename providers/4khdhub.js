@@ -20,13 +20,14 @@ var PROVIDER_NAME = "4khdhub";
 var DOMAINS_URL = "https://raw.githubusercontent.com/Xyr0nX/NGEX/refs/heads/main/manifest.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var DEBUG = false;
+var DEBUG = true;
 
 var FALLBACK_DOMAINS = [DEFAULT_MAIN_URL];
 
 // Manual fallback untuk film/serial yang tidak muncul di pencarian
 var KNOWN_URLS = {
-    "The Drama 2026": "https://4khdhub.link/the-drama-movie-6729/"
+    "The Drama 2026": "https://4khdhub.link/the-drama-movie-6729/",
+    "Furiosa: A Mad Max Saga 2024": "https://yoru.midwesteagle.com/video.m3u8?type=hls&q=VzRtU1VZcXJnRE52ZmpqcmdoN2dYZzoteTJBLTBadlV3dkFfalVvNTltVjdQZGxxWlh3cjJSSk1KR2Z0R1daRjM0X1p4ZDlRRXkyX0JhQ1Exem5sUWE2OHpZb1J1Z3BsdnNXUGRhcXdaNHp3SDN5TnZvd1djQVdwSzdfN0kxbURXbTRLVWVEVzlVRDBqOUxiR050RmpJcHk4ZUV4OURBd0QyVExJRVQyNTVDVG1ycHpxR2Vib2psOEpWaEpPNkg3a2M%3D"
 };
 
 var DEFAULT_HEADERS = {
@@ -349,6 +350,7 @@ function isPlayableMediaUrl(url) {
   if (u.indexOf("hub.maverick.lat/") !== -1) return true;
   if (u.indexOf("cdn.fukggl.buzz/") !== -1) return true;
   if (u.indexOf("hub.diskcdn.buzz/") !== -1) return true;
+  if (u.indexOf("yoru.midwesteagle.com") !== -1) return true;
   if (/\/drive\/admin(?:[/?#]|$)/.test(u)) return false;
   if (/^https?:\/\/(?:www\.)?google\.com\/search\?/i.test(u)) return false;
   if (/^https?:\/\/t\.me\//i.test(u)) return false;
@@ -382,6 +384,7 @@ function hostConfidence(url) {
   if (u.indexOf("hub.maverick.lat") !== -1) return 94;
   if (u.indexOf("cdn.fukggl.buzz") !== -1) return 93;
   if (u.indexOf("hub.diskcdn.buzz") !== -1) return 93;
+  if (u.indexOf("yoru.midwesteagle.com") !== -1) return 90;
   if (u.indexOf("hubcdn") !== -1) return 80;
   if (u.indexOf("hblinks") !== -1) return 60;
   if (u.indexOf("hubcloud") !== -1) return 50;
@@ -579,6 +582,7 @@ function searchContent(query, mediaType, year) {
 function collectMovieLinks($, pageUrl) {
   var links = [];
 
+  // ===== Layer 1 =====
   $("div.download-item, div[data-file-id]").each(function(_, el) {
     var root = $(el);
     var href = fixUrl(root.find("a[href]").first().attr("href"), pageUrl);
@@ -589,6 +593,7 @@ function collectMovieLinks($, pageUrl) {
     links.push({ url: href, label: label, fileTitle: fileTitle, rawHtml: root.html() || "" });
   });
 
+  // ===== Layer 2 =====
   if (!links.length) {
     dbg("[collectMovieLinks] Layer 1 empty -> Layer 2");
     var ALT = [
@@ -623,6 +628,7 @@ function collectMovieLinks($, pageUrl) {
     });
   }
 
+  // ===== Layer 3 =====
   if (!links.length) {
     dbg("[collectMovieLinks] Layer 2 empty -> Layer 3 full scan");
     $("a[href]").each(function(_, el) {
@@ -643,6 +649,39 @@ function collectMovieLinks($, pageUrl) {
     });
   }
 
+  // ===== LAYER 4: Paksa tangkap SEMUA link m3u8 dari tag <a> =====
+  $("a[href*='.m3u8']").each(function(_, el) {
+    var href = fixUrl($(el).attr("href"), pageUrl);
+    if (!href) return;
+    // Hindari duplikasi
+    var alreadyExists = links.some(function(link) {
+      return String(link.url || "").toLowerCase() === href.toLowerCase();
+    });
+    if (alreadyExists) return;
+    var label = cleanLabelText(
+      $(el).closest("p, div, li").first().text().trim() ||
+      $(el).text().trim() || "M3U8 Stream"
+    );
+    dbg("[collectMovieLinks] L4 (m3u8):", href);
+    links.push({ url: href, label: label, fileTitle: label, rawHtml: $(el).parent().html() || "" });
+  });
+
+  // ===== LAYER 5: Ekstrak SEMUA link m3u8 dari teks halaman =====
+  var bodyText = $("body").text();
+  var m3u8Regex = /(https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*)/gi;
+  var m3u8Matches = bodyText.match(m3u8Regex) || [];
+  m3u8Matches.forEach(function(m3u8Url) {
+    // Hindari duplikasi
+    var alreadyExists = links.some(function(link) {
+      return String(link.url || "").toLowerCase() === m3u8Url.toLowerCase();
+    });
+    if (alreadyExists) return;
+    var label = "M3U8 Stream (dari teks)";
+    dbg("[collectMovieLinks] L5 (m3u8 teks):", m3u8Url);
+    links.push({ url: m3u8Url, label: label, fileTitle: label, rawHtml: "" });
+  });
+
+  // ==== Debug jika semua layer kosong =====
   if (!links.length && DEBUG) {
     dbg("[collectMovieLinks] ALL layers empty - dumping all anchors for debug:");
     $("a[href]").each(function(_, el) {
@@ -873,6 +912,7 @@ function isTrustedDirectCandidate(link) {
   if (!u) return false;
   if (u.indexOf("video-downloads.googleusercontent.com/") !== -1) return true;
   if (u.indexOf(".r2.dev/") !== -1) return true;
+  if (u.indexOf("yoru.midwesteagle.com") !== -1) return true;
   if (u.indexOf(".workers.dev/") !== -1) {
     if (u.indexOf("pixel.") !== -1) return false;
     if (u.indexOf("gpdl.") !== -1) return false;
@@ -1158,6 +1198,14 @@ function extractFromPage(contentUrl, mediaType, season, episode) {
     if (!links.length) return [];
 
     links = sortLinksByPriority(links);
+    // === DEBUG: Simpan HTML halaman ke file ===
+    if (DEBUG) {
+      try {
+        var fs = require("fs");
+        fs.writeFileSync("debug_furiosa.html", html);
+        dbg("[extractFromPage] HTML disimpan ke debug_furiosa.html");
+      } catch(e) {}
+    }
 
     return Promise.all(links.map(function(item) {
       var quality = extractCandidateQuality(item);
@@ -1186,7 +1234,7 @@ function findContentUrl(tmdbId, mediaType) {
   return getTmdbNames(tmdbId, mediaType).then(function(names) {
     if (!names.title && !names.original) return null;
 
-    // Periksa fallback manual
+   // Periksa fallback manual
     var key = names.title + " " + names.year;
     if (KNOWN_URLS[key]) {
       dbg("[findContentUrl] Found in KNOWN_URLS:", KNOWN_URLS[key]);
@@ -1211,6 +1259,20 @@ function findContentUrl(tmdbId, mediaType) {
 function getStreams(tmdbId, mediaType, season, episode) {
   return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
     if (!contentUrl) return [];
+
+    // Jika URL dari KNOWN_URLS adalah direct media (m3u8, mp4, mkv), langsung jadikan stream
+    if (isPlayableMediaUrl(contentUrl)) {
+      dbg("[getStreams] Direct media URL detected, skipping extractFromPage");
+      return [{
+        name: PROVIDER_NAME + " | Direct",
+        title: "Direct Stream",
+        url: contentUrl,
+        quality: "Auto",
+        headers: undefined,
+        behaviorHints: { bingeGroup: "4khdhub-direct" }
+      }];
+    }
+
     return extractFromPage(contentUrl, mediaType, season, episode);
   }).catch(function() { return []; });
 }
