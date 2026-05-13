@@ -289,8 +289,11 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
   var finalSize = rebuilt.size || size || extractSize(label);
   var finalTech = rebuilt.tech || tech || cleanTech(label);
   var cleanedLabel = cleanLabelText(label);
+
+  // Panggil buildMeta dengan langHint agar bahasa terdeteksi dan masuk ke title
   var meta = buildMeta(cleanedLabel, finalQuality, finalSize, finalTech, langHint);
 
+  // Header khusus untuk workers.dev
   var streamHeaders = headers || {};
   if (finalUrl.indexOf(".workers.dev") !== -1) {
       streamHeaders = {
@@ -299,7 +302,7 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
       };
   }
 
-  // === BAGIAN BARU: Menambahkan Deskripsi & Info Detail ===
+  // Siapkan deskripsi opsional (jika Nuvio mendukung properti "description")
   var descParts = [];
   if (finalQuality) descParts.push("🎬 " + finalQuality);
   if (finalSize) descParts.push("📦 " + finalSize);
@@ -308,26 +311,15 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
   if (lang) descParts.push("🔊 " + lang);
   var description = descParts.join(" | ") || "Stream 4KHD";
 
-  var infoArray = [
-    { title: "Provider", value: PROVIDER_NAME },
-    { title: "Resolusi", value: finalQuality || "?" },
-    { title: "Ukuran", value: finalSize || "?" },
-    { title: "Codec", value: finalTech || "?" },
-    { title: "Audio", value: lang || "?" },
-    { title: "Server", value: new URL(finalUrl).hostname }
-  ];
-
   return {
     name: meta.name,
     title: meta.title,
     url: finalUrl,
     quality: finalQuality,
     description: description,
-    info: infoArray,
     headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
     behaviorHints: { bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() }
   };
-  // === AKHIR BAGIAN BARU ===
 }
 
 function uniqueBy(list, keyFn) {
