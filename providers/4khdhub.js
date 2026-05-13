@@ -12,7 +12,8 @@
 // 7. Auto-headers for workers.dev: Referer https://gamerxyt.com/.
 // 8. Full URL logging (no slice) for transparent debugging.
 // 9. Max 2 candidates per file with provider categories (gdrive, workers, fsl, r2).
-// 10. Fallback manual URL (KNOWN_URLS) for movies not indexed by internal search.
+// 10.Fallback manual URL (KNOWN_URLS) for movies not indexed by internal search.
+//
 
 var cheerio = require("cheerio-without-node-native");
 
@@ -263,6 +264,104 @@ function rebuildMetaFromFinal(url, fallbackLabel) {
   };
 }
 
+// ========== METADATA EXTRACTION (NEW) ==========
+function extractDetailedMetadata(rawText, htmlContext) {
+  var text = String(rawText || "").toLowerCase();
+  var result = {
+    size: "",
+    sizeBytes: 0,
+    audio: "",
+    language: "",
+    container: "",
+    codec: "",
+    hdr: "",
+    resolution: "",
+    isDolbyVision: false,
+    isHDR10: false
+  };
+
+  // 1. Size (GB/MB)
+  var sizeMatch = text.match(/(\d+(?:\.\d+)?)\s*(gb|mb)/i);
+  if (sizeMatch) {
+    result.size = sizeMatch[1] + " " + sizeMatch[2].toUpperCase();
+    var multiplier = sizeMatch[2].toLowerCase() === "gb" ? 1024*1024*1024 : 1024*1024;
+    result.sizeBytes = parseFloat(sizeMatch[1]) * multiplier;
+  }
+
+  // 2. Container (MKV, MP4, AVI)
+  var containerMatch = text.match(/\b(mkv|mp4|avi|mov|webm)\b/i);
+  if (containerMatch) result.container = containerMatch[1].toUpperCase();
+
+  // 3. Audio codec & features (ATMOS, DTS, AAC, AC3, EAC3, TrueHD)
+  var audioMap = {
+    "atmos": "Dolby Atmos",
+    "truehd": "TrueHD",
+    "dtshdma": "DTS-HD MA",
+    "dts": "DTS",
+    "ac3": "AC3",
+    "eac3": "EAC3",
+    "aac": "AAC",
+    "mp3": "MP3",
+    "flac": "FLAC"
+  };
+  for (var key in audioMap) {
+    if (text.indexOf(key) !== -1) {
+      result.audio = audioMap[key];
+      break;
+    }
+  }
+  // Jika ada ATMOS dan DV/HDR ditulis menyatu seperti "ATMOSDVHDRH265"
+  if (text.indexOf("atmos") !== -1 && !result.audio) result.audio = "Dolby Atmos";
+
+  // 4. Video codec
+  if (text.indexOf("h265") !== -1 || text.indexOf("hevc") !== -1) result.codec = "H.265/HEVC";
+  else if (text.indexOf("h264") !== -1 || text.indexOf("avc") !== -1) result.codec = "H.264/AVC";
+  else if (text.indexOf("av1") !== -1) result.codec = "AV1";
+  else if (text.indexOf("vp9") !== -1) result.codec = "VP9";
+
+  // 5. HDR type
+  if (text.indexOf("dv") !== -1 || text.indexOf("dolby vision") !== -1) {
+    result.hdr = "Dolby Vision";
+    result.isDolbyVision = true;
+  } else if (text.indexOf("hdr10+") !== -1) {
+    result.hdr = "HDR10+";
+    result.isHDR10 = true;
+  } else if (text.indexOf("hdr10") !== -1 || text.indexOf("hdr") !== -1) {
+    result.hdr = "HDR10";
+    result.isHDR10 = true;
+  } else if (text.indexOf("sdr") !== -1) {
+    result.hdr = "SDR";
+  }
+
+  // 6. Language (English, Hindi, Tamil, dll)
+  var langMap = {
+    "english": "English", "eng": "English",
+    "hindi": "Hindi", "hin": "Hindi",
+    "tamil": "Tamil", "tam": "Tamil",
+    "telugu": "Telugu", "tel": "Telugu",
+    "malayalam": "Malayalam", "mal": "Malayalam",
+    "kannada": "Kannada", "kan": "Kannada",
+    "bengali": "Bengali", "ben": "Bengali",
+    "punjabi": "Punjabi", "pan": "Punjabi",
+    "multi audio": "Multi Audio", "dual audio": "Dual Audio"
+  };
+  for (var langKey in langMap) {
+    if (text.indexOf(langKey) !== -1) {
+      result.language = langMap[langKey];
+      break;
+    }
+  }
+  if (!result.language && text.indexOf("multi") !== -1) result.language = "Multi Audio";
+  if (!result.language && text.indexOf("dual") !== -1) result.language = "Dual Audio";
+  if (!result.language) result.language = "Unknown";
+
+  // 7. Resolution (overwrite from earlier if needed)
+  var resMatch = text.match(/\b(2160p|1440p|1080p|720p|480p)\b/);
+  if (resMatch) result.resolution = resMatch[1];
+
+  return result;
+}
+
 function buildMeta(label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
@@ -280,46 +379,90 @@ function buildMeta(label, quality, size, tech, langHint) {
   };
 }
 
-function buildStream(label, url, quality, headers, size, tech, langHint) {
+// ========== ENHANCED buildStream with metadata ==========
+function buildStream(label, url, quality, headers, size, tech, langHint, rawMetadataText) {
   var finalUrl = String(url || "").trim();
   dbg("[buildStream] FINAL URL:", finalUrl);
 
-  var rebuilt = rebuildMetaFromFinal(finalUrl, label);
-  var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
-  var finalSize = rebuilt.size || size || extractSize(label);
-  var finalTech = rebuilt.tech || tech || cleanTech(label);
-  var cleanedLabel = cleanLabelText(label);
-
-  // Panggil buildMeta dengan langHint agar bahasa terdeteksi dan masuk ke title
-  var meta = buildMeta(cleanedLabel, finalQuality, finalSize, finalTech, langHint);
-
-  // Header khusus untuk workers.dev
-  var streamHeaders = headers || {};
-  if (finalUrl.indexOf(".workers.dev") !== -1) {
-      streamHeaders = {
-          "Referer": "https://gamerxyt.com/",
-          "User-Agent": DEFAULT_HEADERS["User-Agent"]
-      };
+  // Ekstrak metadata detail dari label + rawMetadataText + size + tech + langHint
+  var metadataText = (rawMetadataText || "") + " " + (label || "") + " " + (size || "") + " " + (tech || "") + " " + (langHint || "");
+  var details = extractDetailedMetadata(metadataText);
+  
+  // Jika size belum terisi, pakai dari parameter
+  if (!details.size && size) details.size = size;
+  if (!details.resolution && quality && quality !== "Auto") details.resolution = quality;
+  
+  // Fallback tech parsing
+  if (!details.codec && tech) {
+    if (tech.toLowerCase().indexOf("h265") !== -1) details.codec = "H.265/HEVC";
+    else if (tech.toLowerCase().indexOf("h264") !== -1) details.codec = "H.264/AVC";
   }
 
-  // Siapkan deskripsi opsional (jika Nuvio mendukung properti "description")
-  var descParts = [];
-  if (finalQuality) descParts.push("🎬 " + finalQuality);
-  if (finalSize) descParts.push("📦 " + finalSize);
-  if (finalTech) descParts.push("🎞️ " + finalTech);
-  var lang = inferLang(langHint || cleanedLabel);
-  if (lang) descParts.push("🔊 " + lang);
-  var description = descParts.join(" | ") || "Stream 4KHD";
+  var finalQuality = details.resolution || quality || "Auto";
+  var finalSize = details.size || size || extractSize(label);
+  var finalTech = tech || cleanTech(label);
+  
+  var cleanedLabel = cleanLabelText(label);
+  
+  // Buat name dan title yang lebih informatif
+  var nameParts = [PROVIDER_NAME];
+  if (finalQuality !== "Auto") nameParts.push(finalQuality);
+  if (finalSize) nameParts.push(finalSize);
+  var streamName = nameParts.join(" | ");
+  
+  var titleParts = [];
+  if (details.container) titleParts.push(details.container);
+  if (details.codec) titleParts.push(details.codec);
+  if (details.hdr) titleParts.push(details.hdr);
+  if (details.audio) titleParts.push(details.audio);
+  if (details.language && details.language !== "Unknown") titleParts.push(details.language);
+  if (titleParts.length === 0) titleParts.push(finalTech || "Stream");
+  var streamTitle = titleParts.join(" · ");
+  
+  // Tambahkan size di akhir title jika belum ada
+  if (finalSize && streamTitle.indexOf(finalSize) === -1) {
+    streamTitle += " · " + finalSize;
+  }
 
-  return {
-    name: meta.name,
-    title: meta.title,
+  var streamHeaders = headers || {};
+  if (finalUrl.indexOf(".workers.dev") !== -1) {
+    streamHeaders = {
+      "Referer": "https://gamerxyt.com/",
+      "User-Agent": DEFAULT_HEADERS["User-Agent"]
+    };
+  }
+
+  // Objek stream standar + metadata tambahan (behaviorHints.metadata)
+  var stream = {
+    name: streamName,
+    title: streamTitle,
     url: finalUrl,
     quality: finalQuality,
-    description: description,
     headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
-    behaviorHints: { bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() }
+    behaviorHints: { 
+      bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase(),
+      metadata: {
+        size: finalSize,
+        sizeBytes: details.sizeBytes,
+        audio: details.audio,
+        language: details.language,
+        container: details.container,
+        codec: details.codec,
+        hdr: details.hdr,
+        resolution: finalQuality
+      }
+    }
   };
+  
+  dbg("[buildStream] Metadata extracted:", JSON.stringify(details, null, 2));
+  dbg("[buildStream] Final title:", streamTitle);
+  
+  return stream;
+}
+
+function buildStreamLegacy(label, url, quality, headers, size, tech, langHint) {
+  // For backward compatibility if rawMetadataText is missing
+  return buildStream(label, url, quality, headers, size, tech, langHint, "");
 }
 
 function uniqueBy(list, keyFn) {
@@ -739,7 +882,7 @@ function getRedirectLinks(url) {
   }).catch(function() { return ""; });
 }
 
-function resolveHubcdn(url, label, quality, size, tech, langHint) {
+function resolveHubcdn(url, label, quality, size, tech, langHint, rawMetaText) {
   return fetchText(url, { headers: { Referer: url } }).then(function(html) {
     var encoded = "";
     var match1 = html.match(/r=([A-Za-z0-9+/=]+)/);
@@ -751,11 +894,12 @@ function resolveHubcdn(url, label, quality, size, tech, langHint) {
     if (!decoded) return [];
     var finalUrl = decoded.split("link=").pop();
     if (!finalUrl || finalUrl === encoded) return [];
-    return [buildStream(label + " HUBCDN", finalUrl, quality, { Referer: url }, size, tech, langHint)];
+    var combinedMeta = (rawMetaText || "") + " " + label + " " + size + " " + tech;
+    return [buildStream(label + " HUBCDN", finalUrl, quality, { Referer: url }, size, tech, langHint, combinedMeta)];
   }).catch(function() { return []; });
 }
 
-function resolveHubdrive(url, label, quality) {
+function resolveHubdrive(url, label, quality, rawMetaText) {
   var lower = String(url || "").toLowerCase();
   if (lower.indexOf("hubdrive.space") !== -1) {
     dbg("[resolveHubdrive] SKIPPED: hubdrive.space requires login - cannot resolve programmatically");
@@ -820,7 +964,7 @@ function resolveHubdrive(url, label, quality) {
       if (downloadBtn) {
         var downloadUrl = fixUrl(downloadBtn, url);
         dbg("[resolveHubdrive] trying form action:", downloadUrl);
-        return resolveLink(downloadUrl, label, url, quality);
+        return resolveLink(downloadUrl, label, url, quality, "", rawMetaText);
       }
       return [];
     }
@@ -830,17 +974,17 @@ function resolveHubdrive(url, label, quality) {
     dbg("[resolveHubdrive] best candidate:", best);
 
     if (best.toLowerCase().indexOf("hubdrive") !== -1 && best !== url) {
-      return resolveHubdrive(best, label, quality);
+      return resolveHubdrive(best, label, quality, rawMetaText);
     }
 
-    return resolveLink(best, label, url, quality);
+    return resolveLink(best, label, url, quality, "", rawMetaText);
   }).catch(function(e) {
     dbg("[resolveHubdrive] ERROR:", e.message);
     return [];
   });
 }
 
-function resolve10Gbps(url, label, quality, size, tech, langHint) {
+function resolve10Gbps(url, label, quality, size, tech, langHint, rawMetaText) {
   function step(current, depth) {
     if (depth >= 6) return Promise.resolve([]);
     return fetchResponse(current, {
@@ -868,7 +1012,8 @@ function resolve10Gbps(url, label, quality, size, tech, langHint) {
         contentType.indexOf("octet-stream") !== -1
       ) {
         dbg("[resolve10Gbps] Terminal URL:", finalUrl);
-        return [buildStream(label + " 10Gbps", finalUrl, quality, { Referer: current }, size, tech, langHint)];
+        var combinedMeta = (rawMetaText || "") + " " + label + " " + size + " " + tech;
+        return [buildStream(label + " 10Gbps", finalUrl, quality, { Referer: current }, size, tech, langHint, combinedMeta)];
       }
 
       dbg("[resolve10Gbps] Non-terminal, no redirect, URL may be dead");
@@ -886,11 +1031,7 @@ function isTrustedDirectCandidate(link) {
   if (!u) return false;
   if (u.indexOf("video-downloads.googleusercontent.com/") !== -1) return true;
   if (u.indexOf(".r2.dev/") !== -1) return true;
-  if (u.indexOf(".workers.dev/") !== -1) {
-    if (u.indexOf("pixel.") !== -1) return false;
-    if (u.indexOf("gpdl.") !== -1) return false;
-    return true;
-  }
+  if (u.indexOf(".workers.dev/") !== -1) return true;
   if (u.indexOf("hub.lotuscdn.club/") !== -1) return true;
   if (u.indexOf("hub.yummy.monster/") !== -1) return true;
   if (u.indexOf("hub.odyssey.surf/") !== -1) return true;
@@ -901,7 +1042,7 @@ function isTrustedDirectCandidate(link) {
   return false;
 }
 
-function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
+function resolveHubcloud(url, label, referer, quality, langHintFromCaller, rawMetaText) {
   var baseHeaders = referer ? { Referer: referer } : {};
 
   function parseEntry(entryUrl, sourceReferer) {
@@ -960,7 +1101,8 @@ function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
                 res.headers.get("HX-Redirect") ||
                 res.headers.get("location") || "";
               if (!redirected) return [];
-              return [buildStream(label + " BuzzServer", redirected, finalQuality, { Referer: link }, size, tech, header || langHintFromCaller)];
+              var combinedMeta = (rawMetaText || "") + " " + header + " " + size + " " + tech;
+              return [buildStream(label + " BuzzServer", redirected, finalQuality, { Referer: link }, size, tech, header || langHintFromCaller, combinedMeta)];
             }).catch(function() { return []; })
           );
           return;
@@ -972,22 +1114,26 @@ function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
           lowerLink.indexOf("gpdl.hubcloud") !== -1 ||
           lowerLink.indexOf("pixel.hubcloud") !== -1
         ) {
-          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, header || langHintFromCaller));
+          var combinedMeta = (rawMetaText || "") + " " + header + " " + size + " " + tech;
+          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, header || langHintFromCaller, combinedMeta));
           return;
         }
 
         if (lowerLink.indexOf("goldmines") !== -1 && lowerLink.indexOf(".workers.dev") !== -1) {
-          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, header || langHintFromCaller));
+          var combinedMeta2 = (rawMetaText || "") + " " + header + " " + size + " " + tech;
+          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, header || langHintFromCaller, combinedMeta2));
           return;
         }
 
         if (lowerLink.indexOf("pub-") !== -1 && lowerLink.indexOf(".r2.dev/") !== -1) {
-          streamCandidates.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, header || langHintFromCaller));
+          var combinedMeta3 = (rawMetaText || "") + " " + header + " " + size + " " + tech;
+          streamCandidates.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, header || langHintFromCaller, combinedMeta3));
           return;
         }
 
         if (isTrustedDirectCandidate(link)) {
-          streamCandidates.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, header || langHintFromCaller));
+          var combinedMeta4 = (rawMetaText || "") + " " + header + " " + size + " " + tech;
+          streamCandidates.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, header || langHintFromCaller, combinedMeta4));
         }
       });
 
@@ -1090,7 +1236,7 @@ function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
   });
 }
 
-function resolveHblinks(url, label, referer, quality, langHint) {
+function resolveHblinks(url, label, referer, quality, langHint, rawMetaText) {
   return fetchText(url).then(function(html) {
     var $ = cheerio.load(html);
     var hrefs = [];
@@ -1101,7 +1247,7 @@ function resolveHblinks(url, label, referer, quality, langHint) {
     });
     hrefs = uniqueBy(hrefs, function(x) { return x; });
     return Promise.all(hrefs.map(function(href) {
-      return resolveLink(href, label, referer || url, quality, langHint).catch(function() { return []; });
+      return resolveLink(href, label, referer || url, quality, langHint, rawMetaText).catch(function() { return []; });
     })).then(function(groups) {
       var out = [];
       for (var i = 0; i < groups.length; i += 1) out = out.concat(groups[i] || []);
@@ -1110,7 +1256,7 @@ function resolveHblinks(url, label, referer, quality, langHint) {
   }).catch(function() { return []; });
 }
 
-function resolveLink(rawUrl, label, referer, quality, langHint) {
+function resolveLink(rawUrl, label, referer, quality, langHint, rawMetaText) {
   if (!rawUrl) return Promise.resolve([]);
   quality = quality || "Auto";
   referer = referer || "";
@@ -1124,14 +1270,14 @@ function resolveLink(rawUrl, label, referer, quality, langHint) {
     dbg("[resolveLink] ->", url);
 
     if (/\.(m3u8|mp4|mkv)(\?|#|$)/i.test(url)) {
-      return finalize([buildStream(label, url, quality, referer ? { Referer: referer } : {}, "", "", langHint)]);
+      return finalize([buildStream(label, url, quality, referer ? { Referer: referer } : {}, "", "", langHint, rawMetaText)]);
     }
-    if (lower.indexOf("hubcloud") !== -1) return resolveHubcloud(url, label, referer, quality, langHint).then(finalize);
-    if (lower.indexOf("hubcdn") !== -1) return resolveHubcdn(url, label, quality, "", "", langHint).then(finalize);
-    if (lower.indexOf("hblinks") !== -1) return resolveHblinks(url, label, referer, quality, langHint).then(finalize);
-    if (lower.indexOf("hubdrive") !== -1) return resolveHubdrive(url, label, quality).then(finalize);
+    if (lower.indexOf("hubcloud") !== -1) return resolveHubcloud(url, label, referer, quality, langHint, rawMetaText).then(finalize);
+    if (lower.indexOf("hubcdn") !== -1) return resolveHubcdn(url, label, quality, "", "", langHint, rawMetaText).then(finalize);
+    if (lower.indexOf("hblinks") !== -1) return resolveHblinks(url, label, referer, quality, langHint, rawMetaText).then(finalize);
+    if (lower.indexOf("hubdrive") !== -1) return resolveHubdrive(url, label, quality, rawMetaText).then(finalize);
     if (isTrustedDirectCandidate(url)) {
-      return finalize([buildStream(label, url, quality, referer ? { Referer: referer } : {}, "", "", langHint)]);
+      return finalize([buildStream(label, url, quality, referer ? { Referer: referer } : {}, "", "", langHint, rawMetaText)]);
     }
     dbg("[resolveLink] SKIPPED (unknown type):", url);
     return Promise.resolve([]);
@@ -1176,7 +1322,8 @@ function extractFromPage(contentUrl, mediaType, season, episode) {
       var quality = extractCandidateQuality(item);
       var label = cleanLabelText(item.fileTitle || item.label || PROVIDER_NAME);
       var langHint = extractLangHint(item);
-      return resolveLink(item.url, label, contentUrl, quality, langHint).catch(function(e) {
+      var rawMetaText = (item.fileTitle || "") + " " + (item.label || "") + " " + (item.rawHtml || "");
+      return resolveLink(item.url, label, contentUrl, quality, langHint, rawMetaText).catch(function(e) {
         dbg("[extractFromPage] resolveLink FAILED:", item.url, "|", e.message || e);
         return [];
       });
