@@ -4,7 +4,7 @@
   "scrapers": [
     {
       "id": "4khdhub",
-      "name": "4KHDHubXXX",
+      "name": "4KHDHub",
       "description": "Scraper untuk website 4KHDHub dengan sumber video dari berbagai hosting (HubCloud, Pixeldrain, HubCDN, dll).",
       "version": "1.0.0",
       "author": "Xyr0nX",
