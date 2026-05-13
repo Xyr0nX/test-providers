@@ -298,7 +298,7 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
           "User-Agent": DEFAULT_HEADERS["User-Agent"]
       };
   }
-  
+
   // === BAGIAN BARU: Menambahkan Deskripsi & Info Detail ===
   var descParts = [];
   if (finalQuality) descParts.push("🎬 " + finalQuality);
@@ -307,7 +307,7 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
   var lang = inferLang(langHint || cleanedLabel);
   if (lang) descParts.push("🔊 " + lang);
   var description = descParts.join(" | ") || "Stream 4KHD";
-  
+
   var infoArray = [
     { title: "Provider", value: PROVIDER_NAME },
     { title: "Resolusi", value: finalQuality || "?" },
@@ -316,7 +316,7 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
     { title: "Audio", value: lang || "?" },
     { title: "Server", value: new URL(finalUrl).hostname }
   ];
-  
+
   return {
     name: meta.name,
     title: meta.title,
@@ -327,7 +327,7 @@ function buildStream(label, url, quality, headers, size, tech, langHint) {
     headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
     behaviorHints: { bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() }
   };
-// === AKHIR BAGIAN BARU ===
+  // === AKHIR BAGIAN BARU ===
 }
 
 function uniqueBy(list, keyFn) {
