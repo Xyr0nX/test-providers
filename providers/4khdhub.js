@@ -1263,12 +1263,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
     // Jika URL dari KNOWN_URLS adalah direct media (m3u8, mp4, mkv), langsung jadikan stream
     if (isPlayableMediaUrl(contentUrl)) {
       dbg("[getStreams] Direct media URL detected, skipping extractFromPage");
+      var streamHeaders = {};
+      if (contentUrl.indexOf('.m3u8') !== -1) {
+        streamHeaders = {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        };
+      }
       return [{
         name: PROVIDER_NAME + " | Direct",
         title: "Direct Stream",
         url: contentUrl,
         quality: "Auto",
-        headers: undefined,
+        headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
         behaviorHints: { bingeGroup: "4khdhub-direct" }
       }];
     }
