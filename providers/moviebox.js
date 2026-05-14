@@ -63,7 +63,7 @@ var PLUGIN_NAME = "MovieBox";
 var MAIN_URL    = "https://api3.aoneroom.com";
 var TMDB_KEY    = "1865f43a0549ca50d341dd9ab8b29f49";
 
-var PROXY_URL   = "https://xyr0nx-proxy.python-hacking19.workers.dev";
+var PROXY_URL   = null;
 
 var SECRET_KEY_DEFAULT = [239,168,145,151,78,236,211,20,141,246,58,166,17,96,45,239,209,1,37,155,165,33,2,44,87,174,5,102,189,142];
 var SECRET_KEY_ALT     = [94,169,246,158,115,184,215,242,253,218,141,98,185,120,82,44,116,219,94,246,56,103,150,89,235,105,188,153,34,192];
