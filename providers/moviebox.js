@@ -1,7 +1,7 @@
 // ============================================================
-//  movix.js  —  MovieBox plugin for Nuvio
-//  All logic runs in Cloudflare Worker (set WORKER_URL below)
-//  Engine: Hermes — pure .then() chains
+//  MovieBox Multi Audio with Proxy, plugin for Nuvio
+//  Author: Xyr0nX/Antonio-Ante
+//  Github: https://github.com/Xyr0nX
 // ============================================================
 
 if (typeof fetch === "undefined") {
@@ -51,13 +51,8 @@ if (typeof fetch === "undefined") {
 var PLUGIN_ID   = "moviebox";
 var PLUGIN_NAME = "MovieBox";
 
-// ── Set your Cloudflare Worker URL here ───────────────────────
-// Cloudflare Worker URL (set jika pakai Worker):
 var WORKER_URL  = "https://xyr0nx-proxy.python-hacking19.workers.dev";
 
-// VPS Proxy URL (set jika pakai VPS — lebih reliable untuk semua region):
-// Format: "http://IP_VPS:3000" atau "https://domain-vps.com"
-// Kalau PROXY_SERVER_URL diset, semua request MovieBox lewat sini
 var PROXY_SERVER_URL = null;
 
 var HOME_SECTIONS = [
@@ -77,7 +72,7 @@ var MovixPlugin = {
   id:          PLUGIN_ID,
   name:        PLUGIN_NAME,
   version:     "2.0.0",
-  description: "MovieBox — Movies, Series & Anime via Worker proxy.",
+  description: "MovieBox — Movies, Series & Anime.",
   language:    "hi",
   logo:        "https://h5-static.aoneroom.com/oneroomProject/icon/moviebox-official.jpg",
 
@@ -118,7 +113,7 @@ var MovixPlugin = {
           var isDash     = fmt === "DASH" || streamUrl.indexOf(".mpd") >= 0;
           var streamType = isDash ? "dash" : fmt === "MP4" ? "mp4" : "hls";
 
-          // Worker sends resolution as "1080p" — use directly
+          
           var quality = s.resolution || "Auto";
 
           var lang = "Original";
@@ -127,7 +122,7 @@ var MovixPlugin = {
 
           var label = PLUGIN_NAME + " (" + lang + ") - " + quality;
 
-          // Worker sends headers for DASH (cookie), empty for proxied MP4
+          
           var streamHeaders = s.headers || {};
 
           return {
