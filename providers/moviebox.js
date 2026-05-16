@@ -1,7 +1,7 @@
 // ============================================================
-//  MovieBox with Proxy plugin for Nuvio
-//  Author: Xyr0nX
-//  Github: https://github.com/Xyr0nX
+//  movix.js  —  MovieBox plugin for Nuvio
+//  All logic runs in Cloudflare Worker (set WORKER_URL below)
+//  Engine: Hermes — pure .then() chains
 // ============================================================
 
 if (typeof fetch === "undefined") {
@@ -51,10 +51,13 @@ if (typeof fetch === "undefined") {
 var PLUGIN_ID   = "moviebox";
 var PLUGIN_NAME = "MovieBox";
 
-
+// ── Set your Cloudflare Worker URL here ───────────────────────
+// Cloudflare Worker URL (set jika pakai Worker):
 var WORKER_URL  = "https://xyr0nx-proxy.python-hacking19.workers.dev";
 
-
+// VPS Proxy URL (set jika pakai VPS — lebih reliable untuk semua region):
+// Format: "http://IP_VPS:3000" atau "https://domain-vps.com"
+// Kalau PROXY_SERVER_URL diset, semua request MovieBox lewat sini
 var PROXY_SERVER_URL = null;
 
 var HOME_SECTIONS = [
@@ -111,6 +114,10 @@ var MovixPlugin = {
           var streamUrl = s.proxy_url || s.url || "";
           if (!streamUrl) return null;
 
+          var fmt        = (s.format || "").toUpperCase();
+          var isDash     = fmt === "DASH" || streamUrl.indexOf(".mpd") >= 0;
+          var streamType = isDash ? "dash" : fmt === "MP4" ? "mp4" : "hls";
+
           var quality = "Auto";
           var m = (s.resolution || "").match(/(\d+)/);
           if (m) quality = m[1] + "p";
@@ -121,14 +128,17 @@ var MovixPlugin = {
 
           var label = PLUGIN_NAME + " (" + lang + ")" + (quality !== "Auto" ? " " + quality : "");
 
+          // Worker sends headers for DASH (cookie), empty for proxied MP4
+          var streamHeaders = s.headers || {};
+
           return {
             url:     streamUrl,
             quality: quality,
-            type:    (s.format || "").toUpperCase() === "DASH" ? "dash" : "hls",
+            type:    streamType,
             label:   label,
             title:   label,
             name:    PLUGIN_NAME,
-            headers: {},
+            headers: streamHeaders,
           };
         }).filter(Boolean);
 
