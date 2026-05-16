@@ -118,9 +118,8 @@ var MovixPlugin = {
           var isDash     = fmt === "DASH" || streamUrl.indexOf(".mpd") >= 0;
           var streamType = isDash ? "dash" : fmt === "MP4" ? "mp4" : "hls";
 
-          var quality = "Auto";
-          var m = (s.resolution || "").match(/(\d+)/);
-          if (m) quality = m[1] + "p";
+          // Worker sends resolution as "1080p" — use directly
+          var quality = s.resolution || "Auto";
 
           var lang = "Original";
           var lm   = (s.name || "").match(/\(([^)]+)\)/);
