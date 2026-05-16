@@ -72,7 +72,7 @@ var MovixPlugin = {
   id:          PLUGIN_ID,
   name:        PLUGIN_NAME,
   version:     "2.0.0",
-  description: "MovieBox — Movies, Series & Anime.",
+  description: "MovieBox - Movies, Series & Anime.",
   language:    "hi",
   logo:        "https://h5-static.aoneroom.com/oneroomProject/icon/moviebox-official.jpg",
 
