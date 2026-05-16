@@ -1,7 +1,7 @@
 // ============================================================
-//  MovieBox Multi Audio with Proxy, plugin for Nuvio
-//  Author: Xyr0nX/Antonio-Ante
-//  Github: https://github.com/Xyr0nX
+//  movix.js  —  MovieBox plugin for Nuvio
+//  All logic runs in Cloudflare Worker (set WORKER_URL below)
+//  Engine: Hermes — pure .then() chains
 // ============================================================
 
 if (typeof fetch === "undefined") {
@@ -51,8 +51,13 @@ if (typeof fetch === "undefined") {
 var PLUGIN_ID   = "moviebox";
 var PLUGIN_NAME = "MovieBox";
 
-var WORKER_URL  = "https://xyr0nx-proxy.python-hacking19.workers.dev";
+// ── Set your Cloudflare Worker URL here ───────────────────────
+// Cloudflare Worker URL (set jika pakai Worker):
+var WORKER_URL  = "https://YOUR_WORKER.workers.dev";
 
+// VPS Proxy URL (set jika pakai VPS — lebih reliable untuk semua region):
+// Format: "http://IP_VPS:3000" atau "https://domain-vps.com"
+// Kalau PROXY_SERVER_URL diset, semua request MovieBox lewat sini
 var PROXY_SERVER_URL = null;
 
 var HOME_SECTIONS = [
@@ -72,7 +77,7 @@ var MovixPlugin = {
   id:          PLUGIN_ID,
   name:        PLUGIN_NAME,
   version:     "2.0.0",
-  description: "MovieBox - Movies, Series & Anime.",
+  description: "MovieBox — Movies, Series & Anime via Worker proxy.",
   language:    "hi",
   logo:        "https://h5-static.aoneroom.com/oneroomProject/icon/moviebox-official.jpg",
 
@@ -121,8 +126,9 @@ var MovixPlugin = {
           var lm   = (s.name || "").match(/\(([^)]+)\)/);
           if (lm) lang = lm[1];
 
-          var label = PLUGIN_NAME + " (" + lang + ")" + (quality !== "Auto" ? " " + quality : "");
+          var label = PLUGIN_NAME + " (" + lang + ") - " + quality;
 
+          // Worker sends headers for DASH (cookie), empty for proxied MP4
           var streamHeaders = s.headers || {};
 
           return {
@@ -131,7 +137,7 @@ var MovixPlugin = {
             type:    streamType,
             label:   label,
             title:   label,
-            name:    PLUGIN_NAME,
+            name:    label,
             headers: streamHeaders,
           };
         }).filter(Boolean);
