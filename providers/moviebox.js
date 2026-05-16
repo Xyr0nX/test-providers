@@ -1,7 +1,7 @@
 // ============================================================
-//  movix.js  —  MovieBox plugin for Nuvio
-//  All logic runs in Cloudflare Worker (set WORKER_URL below)
-//  Engine: Hermes — pure .then() chains
+//  MovieBox Multi Audio with Proxy, plugin for Nuvio
+//  Author: Xyr0nX/Antonio-Ante
+//  Github: https://github.com/Xyr0nX
 // ============================================================
 
 if (typeof fetch === "undefined") {
@@ -51,13 +51,8 @@ if (typeof fetch === "undefined") {
 var PLUGIN_ID   = "moviebox";
 var PLUGIN_NAME = "MovieBox";
 
-// ── Set your Cloudflare Worker URL here ───────────────────────
-// Cloudflare Worker URL (set jika pakai Worker):
 var WORKER_URL  = "https://xyr0nx-proxy.python-hacking19.workers.dev";
 
-// VPS Proxy URL (set jika pakai VPS — lebih reliable untuk semua region):
-// Format: "http://IP_VPS:3000" atau "https://domain-vps.com"
-// Kalau PROXY_SERVER_URL diset, semua request MovieBox lewat sini
 var PROXY_SERVER_URL = null;
 
 var HOME_SECTIONS = [
@@ -128,7 +123,6 @@ var MovixPlugin = {
 
           var label = PLUGIN_NAME + " (" + lang + ")" + (quality !== "Auto" ? " " + quality : "");
 
-          // Worker sends headers for DASH (cookie), empty for proxied MP4
           var streamHeaders = s.headers || {};
 
           return {
