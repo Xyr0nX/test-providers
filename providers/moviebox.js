@@ -53,7 +53,7 @@ var PLUGIN_NAME = "MovieBox";
 
 // ── Set your Cloudflare Worker URL here ───────────────────────
 // Cloudflare Worker URL (set jika pakai Worker):
-var WORKER_URL  = "https://YOUR_WORKER.workers.dev";
+var WORKER_URL  = "https://xyr0nx-proxy.python-hacking19.workers.dev";
 
 // VPS Proxy URL (set jika pakai VPS — lebih reliable untuk semua region):
 // Format: "http://IP_VPS:3000" atau "https://domain-vps.com"
