@@ -5,15 +5,19 @@
 // ============================================================
 
 if (typeof fetch === "undefined") {
+  // Node.js polyfill (untuk development/testing)
   var _https = require("https");
   var _http  = require("http");
   var _url   = require("url");
+  var _Buffer = (typeof Buffer !== "undefined") ? Buffer : require("buffer").Buffer;
+  
   global.fetch = function(reqUrl, opts) {
     opts = opts || {};
     var method  = (opts.method || "GET").toUpperCase();
     var body    = opts.body || null;
     var headers = Object.assign({}, opts.headers || {});
-    if (body) headers["content-length"] = Buffer.byteLength(body).toString();
+    if (body) headers["content-length"] = _Buffer.byteLength(body).toString();
+    
     return new Promise(function(resolve, reject) {
       var parsed = new _url.URL(reqUrl);
       var lib    = parsed.protocol === "https:" ? _https : _http;
@@ -27,21 +31,25 @@ if (typeof fetch === "undefined") {
         var chunks = [];
         res.on("data", function(c) { chunks.push(c); });
         res.on("end", function() {
-          var text = Buffer.concat(chunks).toString("utf8");
+          var text = _Buffer.concat(chunks).toString("utf8");
           var raw  = res.headers;
           resolve({
             status: res.statusCode,
             ok:     res.statusCode >= 200 && res.statusCode < 300,
-            headers: { get: function(k) { return raw[k.toLowerCase()] || null; } },
+            headers: { 
+              get: function(k) { 
+                return (raw[k.toLowerCase()] || raw[k] || null); 
+              } 
+            },
             text:    function() { return Promise.resolve(text); },
             json:    function() {
               try   { return Promise.resolve(JSON.parse(text)); }
-              catch (e) { return Promise.reject(new Error("JSON: " + text.slice(0,100))); }
+              catch (e) { return Promise.reject(new Error("JSON parse error: " + text.slice(0,100))); }
             },
           });
         });
       });
-      req.on("error", reject);
+      req.on("error", function(e) { reject(new Error("Network error: " + e.message)); });
       if (body) req.write(body);
       req.end();
     });
@@ -50,10 +58,7 @@ if (typeof fetch === "undefined") {
 
 var PLUGIN_ID   = "moviebox";
 var PLUGIN_NAME = "MovieBox";
-
 var WORKER_URL  = "https://xyr0nx-proxy-1.python-hacking19.workers.dev";
-
-var PROXY_SERVER_URL = null;
 
 var HOME_SECTIONS = [
   { id: "trending",    name: "Trending" },
@@ -71,8 +76,8 @@ var HOME_SECTIONS = [
 var MovixPlugin = {
   id:          PLUGIN_ID,
   name:        PLUGIN_NAME,
-  version:     "2.0.0",
-  description: "MovieBox - Movies, Series & Anime.",
+  version:     "2.0.1",
+  description: "MovieBox — Movies, Series & Anime.",
   language:    "hi",
   logo:        "https://h5-static.aoneroom.com/oneroomProject/icon/moviebox-official.jpg",
 
@@ -100,30 +105,38 @@ var MovixPlugin = {
     return fetch(url, {
       headers: { "Accept": "application/json", "User-Agent": "Nuvio/1.0" },
     })
-      .then(function(r) { return r.json(); })
+      .then(function(r) { 
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json().catch(function(e) { throw new Error("Invalid JSON"); });
+      })
       .then(function(data) {
-        var rawStreams = Array.isArray(data) ? data : (data.streams || []);
+        var rawStreams = [];
+        if (Array.isArray(data)) {
+          rawStreams = data;
+        } else if (data && Array.isArray(data.streams)) {
+          rawStreams = data.streams;
+        }
+
         if (!rawStreams.length) return [];
 
         var streams = rawStreams.map(function(s) {
-          var streamUrl = s.proxy_url || s.url || "";
+          var streamUrl = (s.proxy_url || s.url || "").trim();
           if (!streamUrl) return null;
 
           var fmt        = (s.format || "").toUpperCase();
           var isDash     = fmt === "DASH" || streamUrl.indexOf(".mpd") >= 0;
           var streamType = isDash ? "dash" : fmt === "MP4" ? "mp4" : "hls";
+          var quality    = s.resolution || "Auto";
 
-          
-          var quality = s.resolution || "Auto";
-
+          // Extract language from name if available, fallback to "Original"
           var lang = "Original";
-          var lm   = (s.name || "").match(/\(([^)]+)\)/);
-          if (lm) lang = lm[1];
+          if (s.name) {
+            var lm = s.name.match(/\(([^)]+)\)/);
+            if (lm) lang = lm[1];
+          }
 
           var label = PLUGIN_NAME + " (" + lang + ") - " + quality;
-
-          
-          var streamHeaders = s.headers || {};
+          var streamHeaders = Object.assign({}, s.headers || {});
 
           return {
             url:     streamUrl,
@@ -136,21 +149,26 @@ var MovixPlugin = {
           };
         }).filter(Boolean);
 
+        // Sort by numeric quality (descending)
         streams.sort(function(a, b) {
-          var pa = parseInt((a.quality||"").match(/\d+/)||[0]);
-          var pb = parseInt((b.quality||"").match(/\d+/)||[0]);
-          return pb - pa;
+          var numA = parseInt((a.quality || "").match(/(\d+)/)) || 0;
+          var numB = parseInt((b.quality || "").match(/(\d+)/)) || 0;
+          return numB - numA;
         });
 
         return streams;
       })
       .catch(function(e) {
-        console.error("[MovieBox] Error:", e.message);
+        // Log error safely
+        if (typeof console !== "undefined" && console.error) {
+          console.error("[MovieBox] Error:", e.message);
+        }
         return [];
       });
   },
 };
 
+// Ekspor untuk Nuvio atau Node.js
 if (typeof module !== "undefined" && module.exports) {
   module.exports = MovixPlugin;
 } else if (typeof registerPlugin === "function") {
