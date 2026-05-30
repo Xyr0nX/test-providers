@@ -58,7 +58,7 @@ if (typeof fetch === "undefined") {
 
 var PLUGIN_ID   = "moviebox";
 var PLUGIN_NAME = "MovieBox";
-var WORKER_URL  = "https://xyr0nx-proxy-1.python-hacking19.workers.dev";
+var WORKER_URL  = "https://moviebox-proxy-new.python-hacking19.workers.dev";
 
 var HOME_SECTIONS = [
   { id: "trending",    name: "Trending" },
